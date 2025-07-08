@@ -1,0 +1,5 @@
+services:
+  - type: background
+    name: chrome-scraper
+    dockerfilePath: ./Dockerfile
+    plan: starter 
