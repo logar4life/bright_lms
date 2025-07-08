@@ -103,7 +103,7 @@ def scrape_data(driver, wait, max_retries=3):
     for attempt in range(max_retries):
         try:
             # Try the new table XPath first
-            primary_xpath = "/html/body/form/div[3]/div[7]/table"
+            primary_xpath = "/html/body/form/div[3]/div[7]/table/tbody/tr/td/div[2]/div[3]/div[3]/div/div/div[1]/table"
             try:
                 table_element = driver.find_element(By.XPATH, primary_xpath)
                 print(f"✅ Found table using primary XPath: {primary_xpath}")
