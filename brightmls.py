@@ -16,9 +16,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from bs4 import BeautifulSoup
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import StaleElementReferenceException
-import gspread
-from google.oauth2.service_account import Credentials
-import json
+# import gspread
+# from google.oauth2.service_account import Credentials
+# import json
 
 # === Credentials ===
 USERNAME = "najibm1983"
@@ -32,53 +32,66 @@ SEARCH_URL = "https://matrix.brightmls.com/Matrix/Search/ResidentialSale/Residen
 DATA_HASH_FILE = "data_hash.txt"
 
 # Google Sheets setup
-GSHEET_ID = "1ldE3Jz6N0ZhsgSq4S43zjjEAMlTFGTP65JmnFSvI7Js"  # <-- Set your Google Sheet ID
-GSHEET_NAME = "Sheet1"  # <-- Set your Google Sheet tab name
+# GSHEET_ID = "1ldE3Jz6N0ZhsgSq4S43zjjEAMlTFGTP65JmnFSvI7Js"  # <-- Set your Google Sheet ID
+# GSHEET_NAME = "Sheet1"  # <-- Set your Google Sheet tab name
 
 import warnings
 
-# Removed save_data_to_csv function
 
-service_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-if service_json:
-    with open("service.json", "w") as f:
-        f.write(service_json)
 
-def get_gsheet_client():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    if not os.path.isfile("service.json"):
-        warnings.warn("service.json not found. Google Sheets saving will be skipped.")
-        return None
-    creds = Credentials.from_service_account_file("service.json", scopes=scopes)
-    client = gspread.authorize(creds)
-    return client
 
-def save_data_to_gsheet(data, timestamp):
-    """Save data to Google Sheet without headers or column names, just raw values."""
+# def get_gsheet_client():
+#     scopes = [
+#         "https://www.googleapis.com/auth/spreadsheets",
+#         "https://www.googleapis.com/auth/drive"
+#     ]
+#     if not os.path.isfile("service.json"):
+#         warnings.warn("service.json not found. Google Sheets saving will be skipped.")
+#         return None
+#     creds = Credentials.from_service_account_file("service.json", scopes=scopes)
+#     client = gspread.authorize(creds)
+#     return client
+
+# def save_data_to_gsheet(data, timestamp):
+#     """Save data to Google Sheet without headers or column names, just raw values."""
+#     if not data:
+#         return False
+#     # Add timestamp to each row
+#     for row in data:
+#         row['Timestamp'] = timestamp
+#
+#     client = get_gsheet_client()
+#     if client is None:
+#         print("⚠️ Google Sheets client not available. Skipping Google Sheets save.")
+#         return False
+#     sheet = client.open_by_key(GSHEET_ID).worksheet(GSHEET_NAME)
+#
+#     # Prepare rows to append (no headers, just values in the order of the dict)
+#     rows_to_append = []
+#     for row in data:
+#         # Just take the values, in the order they appear in the dict
+#         row_data = list(row.values())
+#         rows_to_append.append(row_data)
+#     # Append rows (no header update)
+#     sheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
+#     print(f"✅ Data appended to Google Sheet (no headers)")
+#     return True
+
+def save_data_to_csv(data, timestamp, filename_prefix="scraped_data"):
+    """Save data to a CSV file with headers and a timestamp column."""
     if not data:
         return False
     # Add timestamp to each row
     for row in data:
         row['Timestamp'] = timestamp
-
-    client = get_gsheet_client()
-    if client is None:
-        print("⚠️ Google Sheets client not available. Skipping Google Sheets save.")
-        return False
-    sheet = client.open_by_key(GSHEET_ID).worksheet(GSHEET_NAME)
-
-    # Prepare rows to append (no headers, just values in the order of the dict)
-    rows_to_append = []
-    for row in data:
-        # Just take the values, in the order they appear in the dict
-        row_data = list(row.values())
-        rows_to_append.append(row_data)
-    # Append rows (no header update)
-    sheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
-    print(f"✅ Data appended to Google Sheet (no headers)")
+    # Get all headers from the first row
+    headers = list(data[0].keys())
+    filename = f"{filename_prefix}_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
+    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(data)
+    print(f"✅ Data saved to CSV: {filename}")
     return True
 
 def get_data_hash(data):
@@ -98,7 +111,6 @@ def load_data_hash():
             return f.read().strip()
     except FileNotFoundError:
         return None
-
 
 
 def scrape_data(driver, wait, max_retries=3):
@@ -220,71 +232,110 @@ def perform_search(driver, wait):
         return False
 
 def scrape_all_pages(driver, wait, max_pages=200):
-    """Scrape up to max_pages of the results table and save each page's data in real time to Google Sheets."""
+    """Scrape up to max_pages of the results table and save each page's data in real time to a single CSV file."""
+    import csv
+    from datetime import datetime
     all_data = []
     headers = None
     page_num = 1
-    
-    # Import the stop flag from main module
+    # Prepare CSV file for real-time writing
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    filename = f"scraped_data_{timestamp}.csv"
+    csvfile = open(filename, 'w', newline='', encoding='utf-8')
+    writer = None
+    wrote_header = False
     try:
-        import main
-        stop_flag = main.stop_scraper
-    except:
-        stop_flag = False
-    
-    while page_num <= max_pages:
-        # Check if we should stop
+        # Import the stop flag from main module
         try:
             import main
-            if main.stop_scraper:
-                print("🛑 Stop signal received, stopping scraper...")
-                break
+            stop_flag = main.stop_scraper
         except:
-            pass
-            
-        print(f"\n🔄 Scraping page {page_num}...")
-        data, page_headers = scrape_data(driver, wait)
-        if not data:
-            print(f"❌ No data found on page {page_num}")
-            break
-        if headers is None:
-            headers = page_headers
-        all_data.extend(data)
-        # Save this page's data immediately
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        # save_data_to_csv(data, timestamp)  # Removed CSV saving
-        save_data_to_gsheet(data, timestamp)
-        # Find the pager and the Next link
-        try:
-            pager = driver.find_element(By.CSS_SELECTOR, 'span.pagingLinks')
-            next_link = None
-            for a in pager.find_elements(By.TAG_NAME, 'a'):
-                if a.text.strip().lower() == 'next':
-                    next_link = a
+            stop_flag = False
+        while page_num <= max_pages:
+            # Check if we should stop
+            try:
+                import main
+                if main.stop_scraper:
+                    print("🛑 Stop signal received, stopping scraper...")
                     break
-            if next_link and next_link.is_enabled() and page_num < max_pages:
-                try:
-                    driver.execute_script("arguments[0].click();", next_link)
-                except StaleElementReferenceException:
-                    print("⚠️ Stale pager element, retrying next page click...")
-                    time.sleep(2)
-                    continue
-                time.sleep(5)  # Wait for next page to load
-                page_num += 1
-            else:
-                print("✅ No more pages or reached max page limit.")
+            except:
+                pass
+            print(f"\n🔄 Scraping page {page_num}...")
+            data, page_headers = scrape_data(driver, wait)
+            if not data:
+                print(f"❌ No data found on page {page_num}")
                 break
-        except StaleElementReferenceException:
-            print("⚠️ Stale pager element, retrying...")
-            time.sleep(2)
-            continue
-        except Exception as e:
-            print(f"❌ Pager navigation error: {e}")
-            break
+            if headers is None:
+                headers = page_headers
+            all_data.extend(data)
+            # Write to CSV in real time
+            if writer is None:
+                writer = csv.DictWriter(csvfile, fieldnames=headers)
+            if not wrote_header:
+                writer.writeheader()
+                wrote_header = True
+            for row in data:
+                row['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                writer.writerow(row)
+            csvfile.flush()
+            # Find the pager and the Next link
+            try:
+                try:
+                    pager = driver.find_element(By.CSS_SELECTOR, 'span.pagingLinks')
+                    next_link = None
+                    for a in pager.find_elements(By.TAG_NAME, 'a'):
+                        if a.text.strip().lower() == 'next':
+                            next_link = a
+                            break
+                except Exception as e:
+                    print(f"⚠️ Could not find 'span.pagingLinks': {e}. Trying alternative selector for Next link...")
+                    # Try to find any 'Next' link or button on the page
+                    next_link = None
+                    # Try by link text
+                    try:
+                        next_link = driver.find_element(By.LINK_TEXT, 'Next')
+                    except Exception:
+                        pass
+                    # Try by partial link text
+                    if not next_link:
+                        try:
+                            next_link = driver.find_element(By.PARTIAL_LINK_TEXT, 'Next')
+                        except Exception:
+                            pass
+                    # Try by button text
+                    if not next_link:
+                        try:
+                            next_link = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'NEXT', 'next'), 'next')]")
+                        except Exception:
+                            pass
+                    if not next_link:
+                        print("❌ Could not find any 'Next' link or button on the page.")
+                        break
+                if next_link and next_link.is_enabled() and page_num < max_pages:
+                    try:
+                        driver.execute_script("arguments[0].click();", next_link)
+                    except StaleElementReferenceException:
+                        print("⚠️ Stale pager element, retrying next page click...")
+                        time.sleep(2)
+                        continue
+                    time.sleep(5)  # Wait for next page to load
+                    page_num += 1
+                else:
+                    print("✅ No more pages or reached max page limit.")
+                    break
+            except StaleElementReferenceException:
+                print("⚠️ Stale pager element, retrying...")
+                time.sleep(2)
+                continue
+            except Exception as e:
+                print(f"❌ Pager navigation error: {e}")
+                break
+    finally:
+        csvfile.close()
     return all_data, headers
 
 def run_brightmls_scraper():
-    """Run the scraping process and return a result dictionary."""
+    """Run the scraping process and return a result dictionary with scraped data."""
     # Setup Chrome driver with enhanced headless options
     options = webdriver.ChromeOptions()
     options.add_argument('--headless=new')  # or '--headless' for older Chrome
@@ -315,6 +366,7 @@ def run_brightmls_scraper():
         'row_count': 0,
         'new_data': False,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'data': []  # Add data key for scraped data
     }
     try:
         # Initial login
@@ -339,6 +391,7 @@ def run_brightmls_scraper():
             return result
         # Scrape all pages and save in real time
         data, headers = scrape_all_pages(driver, wait)
+        result['data'] = data  # Add scraped data to result
         if not data:
             result['message'] = "❌ No data found"
             return result
