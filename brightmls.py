@@ -16,9 +16,10 @@ from selenium.webdriver.common.action_chains import ActionChains
 from bs4 import BeautifulSoup
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException
 # import gspread
 # from google.oauth2.service_account import Credentials
-# import json
+import json
 
 # === Credentials ===
 USERNAME = "najibm1983"
@@ -36,6 +37,7 @@ DATA_HASH_FILE = "data_hash.txt"
 # GSHEET_NAME = "Sheet1"  # <-- Set your Google Sheet tab name
 
 import warnings
+import traceback
 
 
 
@@ -77,23 +79,6 @@ import warnings
 #     print(f"✅ Data appended to Google Sheet (no headers)")
 #     return True
 
-def save_data_to_csv(data, timestamp, filename_prefix="scraped_data"):
-    """Save data to a CSV file with headers and a timestamp column."""
-    if not data:
-        return False
-    # Add timestamp to each row
-    for row in data:
-        row['Timestamp'] = timestamp
-    # Get all headers from the first row
-    headers = list(data[0].keys())
-    filename = f"{filename_prefix}_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
-    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=headers)
-        writer.writeheader()
-        writer.writerows(data)
-    print(f"✅ Data saved to CSV: {filename}")
-    return True
-
 def get_data_hash(data):
     """Generate a hash of the data to detect changes"""
     data_str = str(data)
@@ -117,14 +102,22 @@ def scrape_data(driver, wait, max_retries=3):
     """Scrape data from the results table, with retry for stale element errors and robust header/row extraction. Always use headerless mode."""
     for attempt in range(max_retries):
         try:
-            specific_xpath = "/html/body/form/div[3]/div[7]/table/tbody/tr/td/div[2]/div[3]/div[3]/div/div/div[1]/table"
+            # Try the new table XPath first
+            primary_xpath = "/html/body/form/div[3]/div[7]/table"
             try:
-                table_element = driver.find_element(By.XPATH, specific_xpath)
-                print("✅ Found table using specific XPath")
+                table_element = driver.find_element(By.XPATH, primary_xpath)
+                print(f"✅ Found table using primary XPath: {primary_xpath}")
             except Exception as e:
-                print(f"❌ Could not find table using specific XPath: {e}")
-                table_element = driver.find_element(By.TAG_NAME, "table")
-                print("✅ Found table using fallback method")
+                print(f"❌ Could not find table using primary XPath: {e}")
+                # Fallback to previous specific XPath
+                specific_xpath = "/html/body/form/div[3]/div[7]/table/tbody/tr/td/div[2]/div[3]/div[3]/div/div/div[1]/table"
+                try:
+                    table_element = driver.find_element(By.XPATH, specific_xpath)
+                    print("✅ Found table using specific XPath fallback")
+                except Exception as e:
+                    print(f"❌ Could not find table using specific XPath: {e}")
+                    table_element = driver.find_element(By.TAG_NAME, "table")
+                    print("✅ Found table using fallback method")
 
             table_html = table_element.get_attribute('outerHTML')
             soup = BeautifulSoup(table_html, 'html.parser')
@@ -229,21 +222,14 @@ def perform_search(driver, wait):
         
     except Exception as e:
         print(f"❌ Error performing search: {e}")
+        traceback.print_exc()
         return False
 
-def scrape_all_pages(driver, wait, max_pages=200):
-    """Scrape up to max_pages of the results table and save each page's data in real time to a single CSV file."""
-    import csv
-    from datetime import datetime
+def scrape_all_pages(driver, wait, max_pages=2):
+    """Scrape up to max_pages of the results table and return all data in memory (no CSV saving)."""
     all_data = []
     headers = None
     page_num = 1
-    # Prepare CSV file for real-time writing
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    filename = f"scraped_data_{timestamp}.csv"
-    csvfile = open(filename, 'w', newline='', encoding='utf-8')
-    writer = None
-    wrote_header = False
     try:
         # Import the stop flag from main module
         try:
@@ -268,48 +254,17 @@ def scrape_all_pages(driver, wait, max_pages=200):
             if headers is None:
                 headers = page_headers
             all_data.extend(data)
-            # Write to CSV in real time
-            if writer is None:
-                writer = csv.DictWriter(csvfile, fieldnames=headers)
-            if not wrote_header:
-                writer.writeheader()
-                wrote_header = True
+            # Add timestamp to each row (if needed)
             for row in data:
                 row['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                writer.writerow(row)
-            csvfile.flush()
             # Find the pager and the Next link
             try:
-                try:
-                    pager = driver.find_element(By.CSS_SELECTOR, 'span.pagingLinks')
-                    next_link = None
-                    for a in pager.find_elements(By.TAG_NAME, 'a'):
-                        if a.text.strip().lower() == 'next':
-                            next_link = a
-                            break
-                except Exception as e:
-                    print(f"⚠️ Could not find 'span.pagingLinks': {e}. Trying alternative selector for Next link...")
-                    # Try to find any 'Next' link or button on the page
-                    next_link = None
-                    # Try by link text
-                    try:
-                        next_link = driver.find_element(By.LINK_TEXT, 'Next')
-                    except Exception:
-                        pass
-                    # Try by partial link text
-                    if not next_link:
-                        try:
-                            next_link = driver.find_element(By.PARTIAL_LINK_TEXT, 'Next')
-                        except Exception:
-                            pass
-                    # Try by button text
-                    if not next_link:
-                        try:
-                            next_link = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'NEXT', 'next'), 'next')]")
-                        except Exception:
-                            pass
-                    if not next_link:
-                        print("❌ Could not find any 'Next' link or button on the page.")
+                # Updated pagination logic based on provided HTML
+                pager = driver.find_element(By.CSS_SELECTOR, 'span.pagingLinks')
+                next_link = None
+                for a in pager.find_elements(By.TAG_NAME, 'a'):
+                    if a.text.strip().lower() == 'next' and a.get_attribute('disabled') is None:
+                        next_link = a
                         break
                 if next_link and next_link.is_enabled() and page_num < max_pages:
                     try:
@@ -331,7 +286,7 @@ def scrape_all_pages(driver, wait, max_pages=200):
                 print(f"❌ Pager navigation error: {e}")
                 break
     finally:
-        csvfile.close()
+        pass  # No file to close
     return all_data, headers
 
 def run_brightmls_scraper():
@@ -392,6 +347,8 @@ def run_brightmls_scraper():
         # Scrape all pages and save in real time
         data, headers = scrape_all_pages(driver, wait)
         result['data'] = data  # Add scraped data to result
+        # Print the scraped data as JSON
+        print(json.dumps(data, indent=2, ensure_ascii=False))
         if not data:
             result['message'] = "❌ No data found"
             return result
