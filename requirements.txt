@@ -4,9 +4,8 @@ selenium
 webdriver-manager
 pandas
 beautifulsoup4
-openpyxl
+gspread
 requests
 python-dotenv
-openai
-chromedriver-autoinstaller
-undetected-chromedriver
+openpyxl
+gunicorn
