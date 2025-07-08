@@ -18,6 +18,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import StaleElementReferenceException
 import gspread
 from google.oauth2.service_account import Credentials
+import json
 
 # === Credentials ===
 USERNAME = "najibm1983"
@@ -37,6 +38,11 @@ GSHEET_NAME = "Sheet1"  # <-- Set your Google Sheet tab name
 import warnings
 
 # Removed save_data_to_csv function
+
+service_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+if service_json:
+    with open("service.json", "w") as f:
+        f.write(service_json)
 
 def get_gsheet_client():
     scopes = [
@@ -93,38 +99,7 @@ def load_data_hash():
     except FileNotFoundError:
         return None
 
-# def save_data_to_gsheet(data, timestamp):
-#     """Save data to Google Sheet, adding columns if needed. Always use Column_1, Column_2, ... headers."""
-#     if not data:
-#         return False
-#     # Add timestamp to each row
-#     for row in data:
-#         row['Timestamp'] = timestamp
-#
-#     client = get_gsheet_client()
-#     sheet = client.open_by_key(GSHEET_ID).worksheet(GSHEET_NAME)
-#
-#     # Always use Column_1, Column_2, ... as headers
-#     all_keys = set()
-#     for row in data:
-#         all_keys.update(row.keys())
-#     all_keys = [k for k in sorted(all_keys, key=lambda x: (x != 'Timestamp', x))]  # Timestamp last
-#     # If new columns, update header row
-#     existing_headers = sheet.row_values(1)
-#     if set(all_keys) != set(existing_headers):
-#         sheet.resize(rows=1)  # Keep only header row
-#         sheet.update('A1', [all_keys])
-#         existing_headers = all_keys
-#
-#     # Prepare rows to append
-#     rows_to_append = []
-#     for row in data:
-#         row_data = [row.get(col, "") for col in existing_headers]
-#         rows_to_append.append(row_data)
-#     # Append rows
-#     sheet.append_rows(rows_to_append, value_input_option="USER_ENTERED")
-#     print(f"✅ Data appended to Google Sheet")
-#     return True
+
 
 def scrape_data(driver, wait, max_retries=3):
     """Scrape data from the results table, with retry for stale element errors and robust header/row extraction. Always use headerless mode."""
